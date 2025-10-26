@@ -76,4 +76,18 @@ describe("buildQM", () => {
       assert.equal(result.code, expected);
     });
   }
+
+
+  const ternaryCases = [
+    ["C1 ? R1 : R2", "C1 ? R1 : R2"],
+    ["C1 ? R1 : C2 ? R2 : R3", "C1 ? R1 : C2 ? R2 : R3"],
+    ["C1 ? R1 : C1 ? R2 : R3", "C1 ? R1 : R3"],
+  ];
+  for (const [input, expected] of ternaryCases) {  
+    it(`should simplify [${input}] to [${expected}]`, () => {
+      const expr = qm.simplify(parseExpression(input!));
+      const result = generate(expr, { jsescOption:{ quotes: 'single' } });
+      assert.equal(result.code, expected);
+    });
+  }
 });
