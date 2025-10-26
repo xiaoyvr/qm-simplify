@@ -167,14 +167,11 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
       })
     );
   
-    
-  
     const { onSet, minterms } = onSetFromCubes(cubes);
-    const primes = getPrimes(minterms);
-    const chart = buildPIChart(primes, onSet);
-    const coverCubes: Cube[] = selectCover(chart);
+    const primesWithConver = getPrimesWithCover(minterms.map(prime => ({ cube: prime, onSet: new Set([toIndex(prime, prime.length)]) })));
+    const coverPrimes = selectCover(onSet, primesWithConver);
   
-    const result = coverCubes.map(cube => {
+    const result = coverPrimes.map(cube => {
       const atoms = cube.map((bit, index) => {
         if (bit === '-') {
           return null;
@@ -184,7 +181,7 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
   
       return { atoms };
     });
-    return result;
+    return result;  
   }
   
   return {
@@ -197,36 +194,44 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
 type Bit = '0' | '1' | '-';
 type Cube = Bit[];
 
-function getPrimes(cubes: Cube[]): Cube[] {
-  if (cubes.length === 0) {
+function getPrimesWithCover(cubesWithOnSet: {cube: Cube, onSet: Set<number>}[]): {cube: Cube, onSet: Set<number>}[] {
+  if (cubesWithOnSet.length === 0) {
     return [];
   }
-  const combined: Cube[] = [];
+  const combined = [];
   const usedIndex = new Set<number>();
-  const [_, ...rest] = cubes;
-  for (const [i1, cube1] of cubes.entries()) {
-    for (const [i2, cube2] of rest.entries()) {
+  const [_, ...rest] = cubesWithOnSet;
+  for (const [i1, {cube: cube1, onSet: onSet1}] of cubesWithOnSet.entries()) {
+    for (const [i2, {cube: cube2, onSet: onSet2}] of rest.entries()) {
       const result = canCombine(cube1, cube2);
       if (result.ok) {
         usedIndex.add(i1);
         usedIndex.add(i2+1);
-        combined.push(result.out);
+        combined.push({ cube: result.out, onSet: new Set([...onSet1, ...onSet2]) });
       }  
     }
   }
-  const primes = cubes.filter((_, i) => !usedIndex.has(i));
-  const dedupCombined = dedupCubes(combined);
+  const primesWithOnSet = cubesWithOnSet.filter((_, i) => !usedIndex.has(i));
+  const dedupCombined = dedupCubesWithOnSet(combined);
   if(combined.length === 0) {
-    return primes;
+    return primesWithOnSet;
   }
-  return dedupCubes([...primes, ...getPrimes(dedupCombined)]);
+  return dedupCubesWithOnSet([...primesWithOnSet, ...getPrimesWithCover(dedupCombined)]);
 }
 
-function dedupCubes(cs: Cube[]): Cube[] {
-  const seen = new Set<string>(), out: Cube[] = [];
-  for (const c of cs) { const k = cubeKey(c); if (!seen.has(k)) { seen.add(k); out.push(c); } }
+function dedupCubesWithOnSet(cs: {cube: Cube, onSet: Set<number>}[]): {cube: Cube, onSet: Set<number>}[] {
+  const seen = new Set<string>();
+  const out: {cube: Cube, onSet: Set<number>}[] = [];
+  for (const {cube, onSet} of cs) { 
+    const k = cube.join(''); 
+    if (!seen.has(k)) { 
+      seen.add(k); 
+      out.push({cube, onSet}); 
+    }
+  }
   return out;
 }
+
 
 function canCombine(a: Cube, b: Cube): { ok: true, out: Cube } | { ok: false } {
   let diff = 0, pos = -1;
@@ -266,61 +271,50 @@ function toMinterms(cube: Cube) {
     , [[]]);
 }
 
-function cubeToMinterms(cube: Cube) {
-  return toMinterms(cube).map(t => toIndex(t, cube.length));
-}
-
 function toIndex(minterm: Cube, n: number): number {
   return minterm.reduce((acc, bit, index) => acc + (bit === '1' ? 1 << (n - 1 - index) : 0), 0);
 }
 
-
-// --- PI chart + selection
-function buildPIChart(PIs: Cube[], onSet: number[]) {
-  // map PI -> set of onSet minterms it covers
-  const covers = new Map<string, Set<number>>();
-  for (const pi of PIs) {
-    const key = cubeKey(pi);
-    const set = new Set(cubeToMinterms(pi).filter(m => onSet.includes(m)));
-    if (set.size > 0) covers.set(key, set);
-  }
-  return { onSet, PIs, covers };
-}
-
-function selectCover(chart: ReturnType<typeof buildPIChart>): Cube[] {
-  const { onSet, PIs, covers } = chart;
+function selectCover(onSet: number[], primesWithCover: {cube: Cube, onSet: Set<number>}[]): Cube[] {
   const remaining = new Set(onSet);
-  const selected: string[] = [];
+  const selected: {cube: Cube, onSet: Set<number>}[] = [];
 
-  // 1) essentials
   while (true) {
-    let pick: string | null = null;
-    for (const m of remaining) {
-      const covering = [...covers.entries()].filter(([_, set]) => set.has(m)).map(([k]) => k);
-      if (covering.length === 1) { pick = covering[0]!; break; }
+    let pick: {cube: Cube, onSet: Set<number>} | null = null;
+    for (const onIndex of remaining) {
+      const covering = [...primesWithCover].filter(({onSet}) => onSet.has(onIndex));
+      if (covering.length === 1) { 
+        pick = covering[0]!;
+        break; 
+      }
     }
-    if (!pick) break;
+    if (!pick)  {
+      break;
+    }
     selected.push(pick);
-    for (const m of covers.get(pick)!) remaining.delete(m);
-  }
-
-  // 2) greedy (good enough; replace with Petrick for exact minimality)
-  while (remaining.size > 0) {
-    let bestKey = '', bestGain = -1;
-    for (const [k, set] of covers) {
-      if (selected.includes(k)) continue;
-      const gain = [...set].filter(m => remaining.has(m)).length;
-      if (gain > bestGain) { bestGain = gain; bestKey = k; }
+    for (const m of pick.onSet) {
+      remaining.delete(m);
     }
-    if (!bestKey) break; // should not happen for consistent inputs
-    selected.push(bestKey);
-    for (const m of covers.get(bestKey)!) remaining.delete(m);
   }
 
-  const key2cube = new Map(PIs.map(c => [cubeKey(c), c] as const));
-  return selected.map(k => key2cube.get(k)!);
-}
+  while (remaining.size > 0) {
+    let best: {cube: Cube, onSet: Set<number>} | null = null, bestGain = -1;
+    for (const primeWithCover of primesWithCover) {
+      if (selected.includes(primeWithCover)) 
+        continue;
+      const gain = [...primeWithCover.onSet].filter(m => remaining.has(m)).length;
+      if (gain > bestGain) { 
+        bestGain = gain; 
+        best = primeWithCover; 
+      }
+    }
+    if (!best) 
+      break;
 
-function cubeKey(c: Cube) {
-  return c.join('');
+    selected.push(best);
+    for (const m of best.onSet) 
+      remaining.delete(m);
+  }
+  
+  return selected.map(k => k.cube);
 }
