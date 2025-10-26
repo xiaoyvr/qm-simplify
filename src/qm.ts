@@ -18,12 +18,12 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
       value: boolean;
     }[];
   };
-  type TSOP = Product[];
+  type SOP = Product[];
   
-  const TEmpty: TSOP = [];
-  const TFull: TSOP = [{ atoms: [] }];
+  const Empty: SOP = [];
+  const Full: SOP = [{ atoms: [] }];
 
-  function and(leftSOP: TSOP, rightSOP: TSOP): TSOP {
+  function and(leftSOP: SOP, rightSOP: SOP): SOP {
     let products: Product[] = [];
     for (const leftProduct of leftSOP) {
       for (const rightProduct of rightSOP) {
@@ -36,7 +36,7 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
     return products;
   }
 
-  function or(leftSOP: TSOP, rightSOP: TSOP): TSOP {
+  function or(leftSOP: SOP, rightSOP: SOP): SOP {
     let products: Product[] = [...leftSOP];
     for (const rightProduct of rightSOP) {
       products = orProducts(products, rightProduct);
@@ -78,14 +78,14 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
         cfg.equal(atom.expr, a.expr) && atom.value === a.value));
   }
 
-  function not(sop: TSOP): TSOP {
+  function not(sop: SOP): SOP {
     if (sop.length === 0) {
-      return TFull;
+      return Full;
     }
   
     const [first, ...rest] = sop;
     if (first!.atoms.length === 0) {
-      return TEmpty;
+      return Empty;
     }
   
     const result = rest.reduce((acc: Product[], product) => {
@@ -109,7 +109,7 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
   }
   
 
-  function from(expr: T): TSOP {
+  function from(expr: T): SOP {
     {
       const [ok, result] = cfg.dtorAnd(expr);
       if (ok) {
@@ -131,14 +131,14 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
     {
       const [ok, result] = cfg.dtorliteral(expr);
       if (ok) {
-        return result!.value ? TFull : TEmpty;
+        return result!.value ? Full : Empty;
       }  
     }
   
     return [{ atoms: [{ expr, value: true }] }];
   }
 
-  function to(sop: TSOP): T {
+  function to(sop: SOP): T {
     const result = sop.reduce((acc: T, product, index) => {
       const right = product.atoms.reduce((acc1: T, atom, index1) => {
         const right1 = atom.value ? atom.expr : cfg.ctorNot(atom.expr);
@@ -151,7 +151,7 @@ export function buildQM<T>(cfg: ExprConfig<T>) {
     return result;
   }
 
-  function qmSop(sop: TSOP): TSOP {
+  function qmSop(sop: SOP): SOP {
     const allExprs = sop.flatMap(product => product.atoms.map(atom => atom.expr));
     const orderedExprs = allExprs.filter((expr, index) =>
       allExprs.findIndex(e => cfg.equal(e, expr)) === index);
